@@ -2,6 +2,64 @@ import GuarantorRequest from "../models/guarantorRequestModel.js";
 import LoanRequest from "../models/loanRequestModel.js";
 import User from "../models/userModel.js";
 
+// GET /guarantor-requests/pending
+// Get all pending guarantor requests for the logged-in user
+export const getPendingGuarantorRequests = async (req, res, next) => {
+  try {
+    const user = req.user;
+
+    const requests = await GuarantorRequest.find({
+      guarantor: user.id,
+      status: "PENDING",
+    })
+      .populate("receiver", "name avatarUrl trustIndex")
+      .populate("loanRequest")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      status: "success",
+      results: requests.length,
+      data: { requests },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// GET /guarantor-requests/:id
+// Get details of a specific guarantor request
+export const getGuarantorRequestById = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const { id } = req.params;
+
+    const request = await GuarantorRequest.findById(id)
+      .populate("receiver", "name avatarUrl trustIndex")
+      .populate("guarantor", "name avatarUrl trustIndex")
+      .populate("loanRequest");
+
+    if (!request) {
+      throw new Error("Guarantor request not found.");
+    }
+
+    // Check if user is authorized to view this request
+    const isAuthorized =
+      request.guarantor._id.equals(user.id) ||
+      request.receiver._id.equals(user.id);
+
+    if (!isAuthorized) {
+      throw new Error("You are not authorized to view this request.");
+    }
+
+    res.status(200).json({
+      status: "success",
+      data: { request },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // POST /guarantor-requests
 
 export const createGuarantorRequest = async (req, res, next) => {

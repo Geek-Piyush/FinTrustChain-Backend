@@ -24,7 +24,7 @@ const proofStorage = multer.diskStorage({
 });
 export const uploadProof = multer({ storage: proofStorage }).single("proof");
 
-export const createContract = async (loanRequestId) => {
+export const createContract = async loanRequestId => {
   // This function remains the same as your reference.
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -356,10 +356,17 @@ export const getContractDetails = async (req, res, next) => {
       throw new Error("You are not authorized to view this contract.");
     }
 
+    // Calculate total payable amount (principal + interest)
+    const totalPayable =
+      contract.principal + (contract.principal * contract.interestRate) / 100;
+
     res.status(200).json({
       status: "success",
       data: {
-        contract,
+        contract: {
+          ...contract.toObject(),
+          totalPayable,
+        },
       },
     });
   } catch (error) {
@@ -471,7 +478,7 @@ export const getContractPDF = async (req, res, next) => {
     fileStream.pipe(res);
 
     // Handle stream errors
-    fileStream.on("error", (error) => {
+    fileStream.on("error", error => {
       console.error("Error reading PDF file:", error);
       if (!res.headersSent) {
         res.status(500).json({
