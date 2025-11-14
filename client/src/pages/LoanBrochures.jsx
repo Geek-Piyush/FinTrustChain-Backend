@@ -8,7 +8,10 @@ export default function LoanBrochures() {
     async function load() {
       try {
         const res = await brochures.list();
-        setItems(res.data?.data || []);
+        // Normalize different possible response shapes to an array
+        const data = res?.data;
+        const arr = data?.data?.brochures || data?.brochures || data?.data || data || [];
+        setItems(Array.isArray(arr) ? arr : []);
       } catch (err) {
         // ignore for now
       }
@@ -23,10 +26,10 @@ export default function LoanBrochures() {
         {items.length === 0 && <div className="card p-4">No brochures found</div>}
         {items.map((b) => (
           <div key={b._id || b.id} className="card p-4 rounded">
-            <h3 className="font-semibold">{b.title}</h3>
-            <p className="text-sm text-gray-300">{b.description}</p>
+            <h3 className="font-semibold">₹{b.amount}</h3>
+            <p className="text-sm text-gray-300">Tenor: {b.tenorDays} days</p>
             <div className="mt-3 flex justify-between items-center">
-              <div className="text-sm text-gray-400">{b.minAmount} - {b.maxAmount}</div>
+              <div className="text-sm text-gray-400">Lender: {b.lender?.name || '—'}</div>
               <div className="text-sm neon-text">{b.interestRate}%</div>
             </div>
           </div>
