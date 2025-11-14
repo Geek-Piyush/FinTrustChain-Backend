@@ -2,6 +2,28 @@ import LoanRequest from "../models/loanRequestModel.js";
 import LoanBrochure from "../models/loanBrochureModel.js";
 import { createContract } from "./contractController.js"; // 1. Import the createContract function
 
+// GET /lender/brochures - Get all brochures for logged-in lender
+export const getMyBrochures = async (req, res, next) => {
+  try {
+    const lender = req.user;
+
+    // Find all brochures created by this lender
+    const brochures = await LoanBrochure.find({
+      lender: lender.id,
+    }).sort({ createdAt: -1 });
+
+    res.status(200).json({
+      status: "success",
+      results: brochures.length,
+      data: {
+        brochures,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // GET /lender/requests
 
 export const getMyLoanRequests = async (req, res, next) => {
@@ -13,7 +35,7 @@ export const getMyLoanRequests = async (req, res, next) => {
       lender: lender.id,
       active: true,
     }).select("_id");
-    const myBrochureIds = myBrochures.map((b) => b.id);
+    const myBrochureIds = myBrochures.map(b => b.id);
 
     // Find all loan requests that have a guarantor accepted and are ready for a lender
     const requests = await LoanRequest.find({
