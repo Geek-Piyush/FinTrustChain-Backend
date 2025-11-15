@@ -11,7 +11,7 @@ const api = axios.create({
 });
 
 // Attach token if present
-api.interceptors.request.use((config) => {
+api.interceptors.request.use(config => {
   const token = localStorage.getItem("token");
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -22,21 +22,22 @@ api.interceptors.request.use((config) => {
 // Auth endpoints
 export const auth = {
   // register requires multipart/form-data (eSign image)
-  register: (formData) =>
+  register: formData =>
     api.post(`/auth/register`, formData, {
       headers: { "Content-Type": "multipart/form-data" },
     }),
-  login: (payload) => api.post(`/auth/login`, payload),
-  verifyEmail: (token) => api.get(`/auth/verify-email/${token}`),
+  login: payload => api.post(`/auth/login`, payload),
+  verifyEmail: token => api.get(`/auth/verify-email/${token}`),
 };
 
 // Users
 export const users = {
   me: () => api.get(`/users/me`),
-  getPublic: (userId) => api.get(`/users/${userId}/public`),
-  getPrivate: (userId) => api.get(`/users/${userId}/private`),
+  getPublic: userId => api.get(`/users/${userId}/public`),
+  getPrivate: userId => api.get(`/users/${userId}/private`),
+  search: query => api.get(`/users/search?q=${query}`),
   // updateMe can accept either a JSON payload or FormData (for avatar upload)
-  updateMe: (payload) => {
+  updateMe: payload => {
     if (payload instanceof FormData) {
       return api.patch(`/users/update-me`, payload, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -44,7 +45,8 @@ export const users = {
     }
     return api.patch(`/users/update-me`, payload);
   },
-  toggleRole: (payload) => api.post(`/users/toggle-my-role`, payload),
+  toggleRole: payload => api.post(`/users/toggle-my-role`, payload),
+  canToggleRole: () => api.get(`/users/can-toggle-role`),
 };
 
 // Dashboard endpoints
@@ -55,62 +57,96 @@ export const dashboard = {
   myEndorsers: () => api.get(`/dashboard/my-endorsers`),
   tiHistory: () => api.get(`/dashboard/ti-history`),
   eligibleGuarantors: () => api.get(`/dashboard/eligible-guarantors`),
+  eligibleBrochures: () => api.get(`/dashboard/eligible-brochures`),
 };
 
 // Brochures
 export const brochures = {
   list: () => api.get(`/brochures`),
-  create: (payload) => api.post(`/brochures`, payload),
+  getById: id => api.get(`/brochures/${id}`),
+  getMy: () => api.get(`/brochures/my`),
+  create: payload => api.post(`/brochures`, payload),
   update: (id, payload) => api.patch(`/brochures/${id}`, payload),
-  toggleStatus: (id) => api.patch(`/brochures/${id}/toggle-status`),
-  delete: (id) => api.delete(`/brochures/${id}`),
+  toggleStatus: id => api.patch(`/brochures/${id}/toggle-status`),
+  delete: id => api.delete(`/brochures/${id}`),
 };
 
 // Loan requests (borrower + lender flows)
 export const loanRequests = {
-  create: (payload) => api.post(`/loan-requests`, payload),
+  create: payload => api.post(`/loan-requests`, payload),
+  getMy: () => api.get(`/loan-requests/my`),
+  getById: id => api.get(`/loan-requests/${id}`),
+  cancel: id => api.patch(`/loan-requests/${id}/cancel`),
   listForLender: () => api.get(`/lender/requests`),
-  acceptByLender: (loanReqId) => api.post(`/lender/requests/${loanReqId}/accept`),
+  acceptByLender: loanReqId => api.post(`/lender/requests/${loanReqId}/accept`),
 };
 
 // Contracts
 export const contracts = {
-  get: (id) => api.get(`/contracts/${id}`),
-  downloadPdf: (id) => api.get(`/contracts/${id}/download-pdf`, { responseType: "blob" }),
-  sign: (id) => api.post(`/contracts/${id}/sign`),
-  confirmReceipt: (id) => api.post(`/contracts/${id}/confirm-receipt`),
+  get: id => api.get(`/contracts/${id}`),
+  getMy: () => api.get(`/contracts/my`),
+  getEMISchedule: id => api.get(`/contracts/${id}/emi-schedule`),
+  getPaymentHistory: id => api.get(`/contracts/${id}/payment-history`),
+  downloadPdf: id =>
+    api.get(`/contracts/${id}/download-pdf`, { responseType: "blob" }),
+  sign: id => api.post(`/contracts/${id}/sign`),
+  confirmReceipt: id => api.post(`/contracts/${id}/confirm-receipt`),
   confirmDisbursal: (id, formData) =>
     api.post(`/contracts/${id}/confirm-disbursal`, formData, {
       headers: { "Content-Type": "multipart/form-data" },
     }),
-  receiverUpi: (id) => api.get(`/contracts/${id}/receiver-upi`),
-  disbursalProof: (id) => api.get(`/contracts/${id}/disbursal-proof`),
-  triggerDefaultCheck: (payload) => api.post(`/contracts/admin/trigger-default-check`, payload),
-  guarantorPay: (id) => api.post(`/contracts/${id}/guarantor-pay`),
+  receiverUpi: id => api.get(`/contracts/${id}/receiver-upi`),
+  disbursalProof: id => api.get(`/contracts/${id}/disbursal-proof`),
+  triggerDefaultCheck: payload =>
+    api.post(`/contracts/admin/trigger-default-check`, payload),
+  guarantorPay: id => api.post(`/contracts/${id}/guarantor-pay`),
 };
 
 // Guarantor requests
 export const guarantorRequests = {
-  create: (payload) => api.post(`/guarantor-requests`, payload),
+  create: payload => api.post(`/guarantor-requests`, payload),
+  pending: () => api.get(`/guarantor-requests/pending`),
   update: (id, payload) => api.patch(`/guarantor-requests/${id}`, payload),
+  respond: (id, payload) =>
+    api.post(`/guarantor-requests/${id}/respond`, payload),
 };
 
 // Endorsements
 export const endorsements = {
-  create: (payload) => api.post(`/endorsements`, payload),
-  remove: (id) => api.delete(`/endorsements/${id}`),
+  create: payload => api.post(`/endorsements`, payload),
+  given: () => api.get(`/endorsements/given`),
+  received: () => api.get(`/endorsements/received`),
+  remove: id => api.delete(`/endorsements/${id}`),
 };
 
 // Payments
 export const payments = {
-  pay: (payload) => api.post(`/payments/pay`, payload),
-  callback: (payload) => api.post(`/payments/callback`, payload),
+  pay: payload => api.post(`/payments/pay`, payload),
+  uploadProof: formData =>
+    api.post(`/payments/proof-upload`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
+  acknowledgeProof: paymentId => api.post(`/payments/acknowledge/${paymentId}`),
+  disburse: payload => api.post(`/payments/disburse`, payload),
+  callback: payload => api.post(`/payments/callback`, payload),
 };
 
 // Notifications
 export const notifications = {
-  list: (params) => api.get(`/notifications`, { params }),
-  create: (payload) => api.post(`/notifications`, payload),
+  list: params => api.get(`/notifications`, { params }),
+  getUnreadCount: () => api.get(`/notifications/unread-count`),
+  markAsRead: id => api.patch(`/notifications/${id}/read`),
+  markAllAsRead: () => api.patch(`/notifications/mark-all-read`),
+  delete: id => api.delete(`/notifications/${id}`),
+  create: payload => api.post(`/notifications`, payload),
+};
+
+// Lender-specific endpoints
+export const lender = {
+  getStats: () => api.get(`/lender/stats`),
+  getPendingRequests: params => api.get(`/lender/requests`, { params }),
+  getMyContracts: params => api.get(`/lender/contracts`, { params }),
+  acceptRequest: requestId => api.post(`/lender/requests/${requestId}/accept`),
 };
 
 export default api;

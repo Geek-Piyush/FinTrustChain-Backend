@@ -2,6 +2,60 @@ import LoanRequest from "../models/loanRequestModel.js";
 import LoanBrochure from "../models/loanBrochureModel.js";
 import * as trustIndexService from "../services/trustIndexService.js";
 
+export const getMy = async (req, res, next) => {
+  try {
+    const loanRequests = await LoanRequest.find({ receiver: req.user._id })
+      .populate("receiver", "name email trustIndex")
+      .populate("guarantor", "name email trustIndex")
+      .populate("brochureIds")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      status: "success",
+      results: loanRequests.length,
+      data: {
+        loanRequests,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const cancelLoanRequest = async (req, res, next) => {
+  try {
+    const loanRequest = await LoanRequest.findById(req.params.id);
+
+    if (!loanRequest) {
+      throw new Error("Loan request not found");
+    }
+
+    if (loanRequest.receiver.toString() !== req.user._id.toString()) {
+      throw new Error("You can only cancel your own loan requests");
+    }
+
+    if (
+      loanRequest.status !== "PENDING" &&
+      loanRequest.status !== "GUARANTOR_ACCEPTED"
+    ) {
+      throw new Error("Only pending loan requests can be cancelled");
+    }
+
+    loanRequest.status = "CANCELLED";
+    await loanRequest.save();
+
+    res.status(200).json({
+      status: "success",
+      message: "Loan request cancelled successfully",
+      data: {
+        loanRequest,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const createLoanRequest = async (req, res, next) => {
   try {
     const receiver = req.user;

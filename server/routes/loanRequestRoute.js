@@ -1,17 +1,23 @@
 import express from "express";
-import { createLoanRequest } from "../controllers/loanRequestController.js";
-import { protect } from "../middlewares/authMiddleware.js";
-import { restrictTo } from "../middlewares/authMiddleware.js";
+import {
+  createLoanRequest,
+  getMy,
+  cancelLoanRequest,
+} from "../controllers/loanRequestController.js";
+import { protect, restrictTo } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
 
 // All routes require a user to be logged in.
 router.use(protect);
 
-// POST /api/v1/loan-requests
-// Only users in the 'RECEIVER' role can create requests.
+// GET /api/v1/loan-requests/my - Get my loan requests (RECEIVER only)
+router.get("/my", restrictTo("RECEIVER"), getMy);
 
-router.use(restrictTo("RECEIVER"));
-router.post("/", createLoanRequest);
+// PATCH /api/v1/loan-requests/:id/cancel - Cancel a loan request (RECEIVER only)
+router.patch("/:id/cancel", restrictTo("RECEIVER"), cancelLoanRequest);
+
+// POST /api/v1/loan-requests - Create loan request (RECEIVER only)
+router.post("/", restrictTo("RECEIVER"), createLoanRequest);
 
 export default router;

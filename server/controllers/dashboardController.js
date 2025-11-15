@@ -3,6 +3,7 @@ import GuarantorRequest from "../models/guarantorRequestModel.js";
 import LoanRequest from "../models/loanRequestModel.js";
 import LoanBrochure from "../models/loanBrochureModel.js";
 import User from "../models/userModel.js";
+import * as trustIndexService from "../services/trustIndexService.js";
 
 // GET /dashboard/my-stats
 
@@ -88,7 +89,7 @@ export const getMyPendingActions = async (req, res, next) => {
     const myBrochures = await LoanBrochure.find({ lender: userId }).select(
       "_id"
     );
-    const myBrochureIds = myBrochures.map((b) => b.id);
+    const myBrochureIds = myBrochures.map(b => b.id);
     const loanRequests = await LoanRequest.find({
       brochureIds: { $in: myBrochureIds },
       status: "GUARANTOR_ACCEPTED",
@@ -161,6 +162,40 @@ export const getEligibleGuarantors = async (req, res, next) => {
       results: user.endorsementsReceived.length,
       data: {
         eligibleGuarantors: user.endorsementsReceived,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getEligibleBrochures = async (req, res, next) => {
+  try {
+    const user = req.user;
+
+    if (user.currentRole !== "RECEIVER") {
+      throw new Error("Only receivers can view eligible brochures");
+    }
+
+    // Get user's max loan limit based on TI
+    const maxLoanLimit = trustIndexService.getMaxLoanLimit(user.trustIndex);
+
+    // Find active brochures within the user's limit
+    // Exclude brochures from the user themselves (if they're also a lender)
+    const brochures = await LoanBrochure.find({
+      active: true,
+      amount: { $lte: maxLoanLimit },
+      lender: { $ne: user._id },
+    })
+      .populate("lender", "name email trustIndex")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      status: "success",
+      results: brochures.length,
+      data: {
+        brochures,
+        maxEligibleAmount: maxLoanLimit,
       },
     });
   } catch (error) {

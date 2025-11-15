@@ -6,6 +6,7 @@ import {
   getMyTiHistory,
   getMyEndorsers,
   getEligibleGuarantors,
+  getEligibleBrochures,
 } from "../controllers/dashboardController.js";
 import { protect } from "../middlewares/authMiddleware.js";
 
@@ -29,5 +30,7 @@ router.get("/ti-history", getMyTiHistory);
 router.get("/my-endorsers", getMyEndorsers);
 
 router.get("/eligible-guarantors", getEligibleGuarantors);
+
+router.get("/eligible-brochures", getEligibleBrochures);
 
 export default router;

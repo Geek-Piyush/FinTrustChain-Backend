@@ -1,215 +1,674 @@
 import React, { useEffect, useState } from "react";
-import { dashboard, users as usersApi, brochures as brochuresApi, loanRequests as loanReqApi } from "../api/api";
+import {
+  dashboard,
+  guarantorRequests,
+  loanRequests,
+  brochures,
+  users,
+} from "../api/api";
 import { useAuth } from "../context/AuthContext";
+import { useNavigate } from "react-router-dom";
 import Loader from "../components/Loader";
-
-// Small presentational stat card
-function StatCard({ title, value }) {
-  return (
-    <div className="card p-6 rounded">
-      <div className="text-sm text-gray-400">{title}</div>
-      <div className="text-3xl font-bold neon-text">{value}</div>
-    </div>
-  );
-}
-
-function ListCard({ title, items, renderItem, emptyText }) {
-  return (
-    <div className="card p-4 rounded">
-      <h3 className="font-semibold">{title}</h3>
-      {(!items || items.length === 0) ? (
-        <div className="text-gray-400 mt-3">{emptyText || `No ${title.toLowerCase()}`}</div>
-      ) : (
-        <ul className="mt-3 space-y-2">{items.map(renderItem)}</ul>
-      )}
-    </div>
-  );
-}
+import TrustIndexHistory from "../components/TrustIndexHistory";
+import GuarantorRequestCard from "../components/GuarantorRequestCard";
+import { Check } from "lucide-react";
 
 export default function Dashboard() {
-  const { user, refreshUser } = useAuth();
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [contracts, setContracts] = useState([]);
-  const [endorsers, setEndorsers] = useState([]);
+  const [pendingGRequests, setPendingGRequests] = useState([]);
+  const [myLoanRequests, setMyLoanRequests] = useState([]);
+  const [availableBrochures, setAvailableBrochures] = useState([]);
+  const [selectedBrochures, setSelectedBrochures] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [toggling, setToggling] = useState(false);
-  const [myBrochures, setMyBrochures] = useState([]);
-  const [incomingRequests, setIncomingRequests] = useState([]);
+  const [applying, setApplying] = useState(false);
+
+  // Guarantor selection states
+  const [guarantorSearch, setGuarantorSearch] = useState("");
+  const [guarantorResults, setGuarantorResults] = useState([]);
+  const [selectedGuarantor, setSelectedGuarantor] = useState(null);
+  const [searching, setSearching] = useState(false);
+  const [purpose, setPurpose] = useState("");
 
   useEffect(() => {
-    let mounted = true;
-    async function load() {
-      setLoading(true);
-      try {
-        const res = await dashboard.myStats();
-        if (!mounted) return;
-        setStats(res.data?.data?.stats || null);
+    loadDashboard();
+  }, []);
 
-        const contractsRes = await dashboard.myActiveContracts();
-        if (!mounted) return;
-        setContracts(contractsRes.data?.data?.contracts || []);
-
-        const endorsersRes = await dashboard.myEndorsers();
-        if (!mounted) return;
-        setEndorsers(endorsersRes.data?.data?.endorsers || []);
-
-        // lender-specific data
-        if (user?.currentRole === "LENDER") {
-          try {
-            const bres = await brochuresApi.list();
-            const list = bres?.data?.data?.brochures || bres?.data || [];
-            const mine = list.filter((b) => (b.lender === (user?._id || user?.id)) || (b.lender?._id === (user?._id || user?.id)));
-            if (!mounted) return;
-            setMyBrochures(mine);
-
-            // fetch lender incoming requests
-            try {
-              const reqs = await loanReqApi.listForLender();
-              if (!mounted) return;
-              setIncomingRequests(reqs?.data?.data?.requests || reqs?.data || []);
-            } catch (er) {
-              // ignore
-            }
-          } catch (err) {
-            // ignore
-          }
-        }
-      } catch (err) {
-        // ignore
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    }
-    load();
-    return () => (mounted = false);
-  }, [user]);
-
-  const handleToggle = async () => {
-    setToggling(true);
+  const loadDashboard = async () => {
+    setLoading(true);
     try {
-      await usersApi.toggleRole();
-      await refreshUser();
-      const res = await dashboard.myStats();
-      setStats(res.data?.data?.stats || null);
+      const [statsRes, contractsRes, grRes, lrRes, brochuresRes] =
+        await Promise.all([
+          dashboard.myStats().catch(() => ({ data: {} })),
+          dashboard
+            .myActiveContracts()
+            .catch(() => ({ data: { data: { contracts: [] } } })),
+          guarantorRequests
+            .pending()
+            .catch(() => ({ data: { data: { requests: [] } } })),
+          loanRequests
+            .getMy()
+            .catch(() => ({ data: { data: { loanRequests: [] } } })),
+          brochures.list().catch(() => ({ data: { data: { brochures: [] } } })),
+        ]);
+
+      setStats(statsRes.data?.data?.stats || null);
+      setContracts(contractsRes.data?.data?.contracts || []);
+      setPendingGRequests(grRes.data?.data?.requests || []);
+      setMyLoanRequests(lrRes.data?.data?.loanRequests || []);
+
+      // Filter brochures - only active ones, exclude user's own
+      const allBrochures =
+        brochuresRes.data?.data?.brochures ||
+        brochuresRes.data?.brochures ||
+        [];
+      const filtered = allBrochures.filter(
+        b =>
+          b.active && b.lender?._id !== user?._id && b.lender?.id !== user?.id
+      );
+      setAvailableBrochures(filtered);
     } catch (err) {
-      // ignore
+      console.error("Failed to load dashboard", err);
     } finally {
-      setToggling(false);
+      setLoading(false);
     }
   };
 
-  // Shared top stats
-  const statsList = [
-    { title: "Trust Index", value: stats?.trustIndex ?? "—" },
-    { title: "Eligible Loan", value: stats?.eligibleLoan ?? "—" },
-    { title: "Endorsements", value: stats?.endorsementsReceived ?? 0 },
-  ];
+  const toggleBrochureSelection = brochure => {
+    setSelectedBrochures(prev => {
+      const exists = prev.find(
+        b => (b._id || b.id) === (brochure._id || brochure.id)
+      );
+      if (exists) {
+        return prev.filter(
+          b => (b._id || b.id) !== (brochure._id || brochure.id)
+        );
+      }
+      if (prev.length >= 3) {
+        alert("You can select maximum 3 brochures");
+        return prev;
+      }
+      return [...prev, brochure];
+    });
+  };
+
+  const handleSearchGuarantor = async () => {
+    if (!guarantorSearch.trim()) return;
+    setSearching(true);
+    try {
+      const res = await users.search(guarantorSearch);
+      const results = res.data?.data?.users || res.data?.users || [];
+      setGuarantorResults(results);
+    } catch (err) {
+      console.error("Search failed", err);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleApplyForLoan = async () => {
+    // Check if user already has an active loan request
+    const hasActiveLoanRequest = myLoanRequests.some(
+      lr =>
+        lr.status === "PENDING" ||
+        lr.status === "PENDING_GUARANTOR" ||
+        lr.status === "GUARANTOR_ACCEPTED" ||
+        lr.status === "PENDING_LENDER"
+    );
+
+    if (hasActiveLoanRequest) {
+      alert(
+        "You already have an active loan request. Please wait for it to be processed or cancel it first."
+      );
+      return;
+    }
+
+    if (selectedBrochures.length === 0) {
+      alert("Please select at least one brochure");
+      return;
+    }
+
+    if (!selectedGuarantor) {
+      alert("Please select a guarantor");
+      return;
+    }
+
+    if (!purpose.trim()) {
+      alert("Please provide a purpose for the loan");
+      return;
+    }
+
+    if (!user?.upiId) {
+      alert("Please update your UPI ID in profile before applying for a loan");
+      navigate("/update-profile");
+      return;
+    }
+
+    setApplying(true);
+    try {
+      const formData = new FormData();
+
+      // Create loan request with selected brochures
+      for (const brochure of selectedBrochures) {
+        formData.append("brochureId", brochure._id || brochure.id);
+        formData.append(
+          "guarantorId",
+          selectedGuarantor._id || selectedGuarantor.id
+        );
+        formData.append("purpose", purpose);
+
+        await loanRequests.create(formData);
+      }
+
+      alert(
+        `${selectedBrochures.length} loan request(s) created successfully!`
+      );
+
+      // Reset form
+      setSelectedBrochures([]);
+      setSelectedGuarantor(null);
+      setPurpose("");
+      setGuarantorSearch("");
+      setGuarantorResults([]);
+
+      // Reload dashboard
+      loadDashboard();
+    } catch (err) {
+      alert(err.response?.data?.message || "Failed to create loan request");
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const getTIColor = ti => {
+    if (ti >= 800) return "text-emerald-400";
+    if (ti >= 600) return "text-green-400";
+    if (ti >= 500) return "text-yellow-400";
+    if (ti >= 400) return "text-orange-400";
+    return "text-red-400";
+  };
+
+  const getStatusBadge = status => {
+    const colors = {
+      PENDING: "bg-yellow-500/20 text-yellow-400 border-yellow-500",
+      PENDING_GUARANTOR: "bg-yellow-500/20 text-yellow-400 border-yellow-500",
+      PENDING_LENDER: "bg-blue-500/20 text-blue-400 border-blue-500",
+      GUARANTOR_ACCEPTED: "bg-purple-500/20 text-purple-400 border-purple-500",
+      ACCEPTED: "bg-green-500/20 text-green-400 border-green-500",
+      REJECTED: "bg-red-500/20 text-red-400 border-red-500",
+      ACTIVE: "bg-green-500/20 text-green-400 border-green-500",
+      CANCELLED: "bg-gray-500/20 text-gray-400 border-gray-500",
+    };
+    return (
+      <span
+        className={`px-2 py-1 rounded text-xs font-medium border ${
+          colors[status] || "bg-gray-500/20 text-gray-400 border-gray-500"
+        }`}
+      >
+        {status.replace(/_/g, " ")}
+      </span>
+    );
+  };
+
+  const isGuarantorEligible = guarantor => {
+    if (!guarantor) return false;
+    if (guarantor._id === user?._id || guarantor.id === user?.id) return false;
+    if (guarantor.trustIndex < 500) return false;
+    return true;
+  };
+
+  if (loading)
+    return (
+      <div className="container-max py-24 flex items-center justify-center min-h-screen">
+        <Loader />
+      </div>
+    );
 
   return (
-    <div className="container-max py-36 min-h-screen">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold neon-text">Dashboard</h1>
-        <div className="flex items-center gap-3">
-          <div className="text-sm text-gray-300">Role: <span className="font-medium ml-2">{user?.currentRole || user?.role || 'RECEIVER'}</span></div>
-          <button className="btn-neon p-2 rounded" onClick={handleToggle} disabled={toggling}>{toggling? 'Switching...' : 'Toggle Role'}</button>
+    <div className="container-max py-24 min-h-screen">
+      <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent mb-8">
+        Dashboard
+      </h1>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="bg-gradient-to-br from-blue-500/10 to-purple-500/10 border border-white/10 rounded-xl p-6">
+          <div className="text-gray-400 text-sm mb-2">Trust Index</div>
+          <div
+            className={`text-4xl font-bold ${getTIColor(
+              stats?.trustIndex || user?.trustIndex
+            )}`}
+          >
+            {stats?.trustIndex ?? user?.trustIndex ?? 400}
+          </div>
+        </div>
+        <div className="bg-white/5 border border-white/10 rounded-xl p-6">
+          <div className="text-gray-400 text-sm mb-2">Eligible Loan</div>
+          <div className="text-3xl font-bold text-white">
+            ₹{stats?.eligibleLoan?.toLocaleString() ?? "—"}
+          </div>
+        </div>
+        <div className="bg-white/5 border border-white/10 rounded-xl p-6">
+          <div className="text-gray-400 text-sm mb-2">Active Loans</div>
+          <div className="text-3xl font-bold text-white">
+            {contracts.length} / 2
+          </div>
+        </div>
+        <div className="bg-white/5 border border-white/10 rounded-xl p-6">
+          <div className="text-gray-400 text-sm mb-2">Pending Requests</div>
+          <div className="text-3xl font-bold text-white">
+            {pendingGRequests.length}
+          </div>
         </div>
       </div>
 
-      {loading ? <div className="mt-8"><Loader /></div> : (
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
-            {statsList.map((s) => (
-              <StatCard key={s.title} title={s.title} value={s.value} />
+      {/* Available Brochures with Multi-Select */}
+      <div className="bg-white/5 border border-white/10 rounded-xl p-6 mb-8">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-semibold text-white">
+            Available Loan Brochures
+            {selectedBrochures.length > 0 && (
+              <span className="ml-3 text-sm text-blue-400">
+                ({selectedBrochures.length} selected)
+              </span>
+            )}
+          </h2>
+          <button
+            onClick={loadDashboard}
+            className="text-sm px-3 py-1 rounded border border-white/20 hover:bg-white/10 transition-colors text-gray-300"
+          >
+            Refresh
+          </button>
+        </div>
+
+        {availableBrochures.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-gray-400">
+              No brochures available at the moment
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {availableBrochures.map(brochure => {
+              const isSelected = selectedBrochures.some(
+                b => (b._id || b.id) === (brochure._id || brochure.id)
+              );
+
+              return (
+                <div
+                  key={brochure._id || brochure.id}
+                  onClick={() => toggleBrochureSelection(brochure)}
+                  className={`relative bg-white/5 border rounded-lg p-4 hover:bg-white/10 transition-all cursor-pointer ${
+                    isSelected
+                      ? "border-blue-500 bg-blue-500/10"
+                      : "border-white/10"
+                  }`}
+                >
+                  {isSelected && (
+                    <div className="absolute top-2 right-2 w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+                      <Check size={16} className="text-white" />
+                    </div>
+                  )}
+
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <div className="text-2xl font-bold text-white">
+                        ₹{brochure.amount?.toLocaleString()}
+                      </div>
+                      <div className="text-sm text-gray-400 mt-1">
+                        {brochure.tenorDays} days
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-lg font-semibold text-green-400">
+                        {brochure.interestRate}%
+                      </div>
+                      <div className="text-xs text-gray-400">interest</div>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-white/10 pt-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-sm">
+                        {brochure.lender?.name?.[0]?.toUpperCase() || "L"}
+                      </div>
+                      <div className="flex-1">
+                        <div className="text-sm font-medium text-white">
+                          {brochure.lender?.name || "Lender"}
+                        </div>
+                        <div
+                          className={`text-xs font-semibold ${getTIColor(
+                            brochure.lender?.trustIndex
+                          )}`}
+                        >
+                          TI: {brochure.lender?.trustIndex || "N/A"}
+                        </div>
+                      </div>
+                    </div>
+
+                    {brochure.description && (
+                      <p className="text-xs text-gray-400 mt-2 line-clamp-2">
+                        {brochure.description}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="mt-2 text-xs text-gray-500">
+                    Posted {new Date(brochure.createdAt).toLocaleDateString()}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Apply for Loan Section */}
+        {selectedBrochures.length > 0 && (
+          <div className="mt-8 border-t border-white/20 pt-6">
+            <h3 className="text-lg font-semibold text-white mb-4">
+              Apply for Selected Loans
+            </h3>
+
+            {/* Selected Brochures Summary */}
+            <div className="mb-4 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+              <div className="text-sm text-gray-300 mb-2">
+                Selected Brochures:
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {selectedBrochures.map((b, idx) => (
+                  <span
+                    key={idx}
+                    className="px-3 py-1 bg-blue-500/20 border border-blue-500 rounded-full text-sm text-white"
+                  >
+                    ₹{b.amount?.toLocaleString()} • {b.tenorDays}d •{" "}
+                    {b.interestRate}%
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Purpose */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Purpose <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                value={purpose}
+                onChange={e => setPurpose(e.target.value)}
+                rows={3}
+                maxLength={500}
+                placeholder="Explain why you need this loan..."
+                className="w-full p-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+              />
+              <div className="text-xs text-gray-400 mt-1 text-right">
+                {purpose.length}/500
+              </div>
+            </div>
+
+            {/* Guarantor Selection */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Select Guarantor <span className="text-red-500">*</span>
+              </label>
+
+              {selectedGuarantor ? (
+                <div className="bg-green-500/20 border border-green-500 rounded-lg p-4">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-green-500 to-blue-500 flex items-center justify-center font-bold">
+                        {selectedGuarantor.name?.[0]?.toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="font-semibold text-white">
+                          {selectedGuarantor.name}
+                        </div>
+                        <div className="text-xs text-gray-400">
+                          {selectedGuarantor.email}
+                        </div>
+                        <div
+                          className={`text-sm font-semibold ${getTIColor(
+                            selectedGuarantor.trustIndex
+                          )}`}
+                        >
+                          TI: {selectedGuarantor.trustIndex}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedGuarantor(null)}
+                      className="px-4 py-2 bg-red-500 hover:bg-red-600 rounded text-white text-sm"
+                    >
+                      Change
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div className="flex gap-2 mb-3">
+                    <input
+                      type="text"
+                      value={guarantorSearch}
+                      onChange={e => setGuarantorSearch(e.target.value)}
+                      onKeyPress={e =>
+                        e.key === "Enter" &&
+                        (e.preventDefault(), handleSearchGuarantor())
+                      }
+                      placeholder="Search by name or email..."
+                      className="flex-1 p-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSearchGuarantor}
+                      disabled={searching}
+                      className="px-6 py-3 bg-blue-500 hover:bg-blue-600 rounded-lg text-white font-medium disabled:opacity-50"
+                    >
+                      {searching ? "..." : "Search"}
+                    </button>
+                  </div>
+
+                  {guarantorResults.length > 0 && (
+                    <div className="space-y-2">
+                      {guarantorResults.map(g => {
+                        const eligible = isGuarantorEligible(g);
+                        return (
+                          <div
+                            key={g._id}
+                            className={`p-3 rounded-lg border ${
+                              eligible
+                                ? "bg-white/5 border-white/10 hover:bg-white/10"
+                                : "bg-red-500/10 border-red-500/30"
+                            }`}
+                          >
+                            <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-sm font-bold">
+                                  {g.name?.[0]?.toUpperCase()}
+                                </div>
+                                <div>
+                                  <div className="font-medium text-white">
+                                    {g.name}
+                                  </div>
+                                  <div className="text-xs text-gray-400">
+                                    {g.email}
+                                  </div>
+                                  <div
+                                    className={`text-sm font-semibold ${getTIColor(
+                                      g.trustIndex
+                                    )}`}
+                                  >
+                                    TI: {g.trustIndex}
+                                  </div>
+                                </div>
+                              </div>
+                              {eligible ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedGuarantor(g);
+                                    setGuarantorResults([]);
+                                  }}
+                                  className="px-4 py-2 bg-green-500 hover:bg-green-600 rounded text-white text-sm"
+                                >
+                                  Select
+                                </button>
+                              ) : (
+                                <span className="text-xs text-red-400">
+                                  {g.trustIndex < 500
+                                    ? "TI too low"
+                                    : "Not eligible"}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Apply Button */}
+            <button
+              onClick={handleApplyForLoan}
+              disabled={applying || !selectedGuarantor || !purpose.trim()}
+              className="w-full px-6 py-4 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg text-white font-medium hover:from-blue-600 hover:to-purple-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {applying
+                ? "Submitting..."
+                : `Apply for ${selectedBrochures.length} Loan${
+                    selectedBrochures.length > 1 ? "s" : ""
+                  }`}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* My Loan Requests */}
+      <div className="bg-white/5 border border-white/10 rounded-xl p-6 mb-8">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-semibold text-white">My Loan Requests</h2>
+        </div>
+        {myLoanRequests.length === 0 ? (
+          <div className="text-gray-400 text-center py-8">
+            No loan requests yet
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {myLoanRequests.map(req => (
+              <div
+                key={req._id}
+                className="bg-white/5 border border-white/10 rounded-lg p-4 hover:bg-white/10 transition-all"
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="font-medium text-white">
+                      ₹{req.amount?.toLocaleString()}
+                    </div>
+                    <div className="text-sm text-gray-300 mt-1">
+                      {req.tenorDays} days •{" "}
+                      {req.guarantor?.name || "No guarantor"}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Requested {new Date(req.createdAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {getStatusBadge(req.status)}
+                    {req.status === "ACCEPTED" && (
+                      <button
+                        onClick={() => navigate(`/contracts/${req.contractId}`)}
+                        className="px-3 py-1 bg-green-500 hover:bg-green-600 rounded text-white text-xs font-medium"
+                      >
+                        View Contract
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
             ))}
           </div>
+        )}
+      </div>
 
-          <div className="mt-8 grid md:grid-cols-2 gap-6">
-            <ListCard
-              title="Active Contracts"
-              items={contracts}
-              emptyText="No active contracts"
-              renderItem={(c) => (
-                <li key={c._id || c.id} className="p-2 border border-white/6 rounded">
-                  <div className="font-medium">Contract: {c.contractId || c._id}</div>
-                  <div className="text-sm text-gray-300">Status: {c.status}</div>
-                </li>
-              )}
-            />
-
-            <ListCard
-              title="Endorsers"
-              items={endorsers}
-              emptyText="No endorsers yet"
-              renderItem={(e) => (
-                <li key={e._id || e.id} className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-white/6 rounded-full" />
-                  <div>
-                    <div className="font-medium">{e.name}</div>
-                    <div className="text-xs text-gray-300">TI: {e.trustIndex}</div>
-                  </div>
-                </li>
-              )}
-            />
+      {/* My Active Contracts */}
+      <div className="bg-white/5 border border-white/10 rounded-xl p-6 mb-8">
+        <h2 className="text-xl font-semibold text-white mb-6">
+          My Active Contracts
+        </h2>
+        {contracts.length === 0 ? (
+          <div className="text-gray-400 text-center py-8">
+            No active contracts
           </div>
+        ) : (
+          <div className="space-y-3">
+            {contracts.map(c => (
+              <div
+                key={c._id}
+                className="bg-white/5 border border-white/10 rounded-lg p-4 hover:bg-white/10 transition-all cursor-pointer"
+                onClick={() => navigate(`/contracts/${c._id}`)}
+              >
+                <div className="flex justify-between items-center">
+                  <div>
+                    <div className="font-medium text-white">
+                      Contract #{c.contractId || c._id?.slice(-6)}
+                    </div>
+                    <div className="text-sm text-gray-300 mt-1">
+                      Lender: {c.lender?.name} • ₹
+                      {c.principal?.toLocaleString()}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Next EMI:{" "}
+                      {c.nextEMIDate
+                        ? new Date(c.nextEMIDate).toLocaleDateString()
+                        : "N/A"}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {getStatusBadge(c.status)}
+                    <button className="px-3 py-1 bg-blue-500 hover:bg-blue-600 rounded text-white text-xs font-medium">
+                      View Details →
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
-          {/* Role specific panels */}
-          {user?.currentRole === 'LENDER' ? (
-            <div className="mt-8">
-              <h2 className="font-semibold neon-text">Lender Overview</h2>
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="card p-4 rounded">Your Brochures: <div className="text-2xl font-bold neon-text">{myBrochures.length}</div></div>
-                <div className="card p-4 rounded">Open Offers: <div className="text-2xl font-bold neon-text">{myBrochures.filter(b=>b.active).length}</div></div>
-                <div className="card p-4 rounded">Incoming Requests: <div className="text-2xl font-bold neon-text">{incomingRequests.length}</div></div>
-              </div>
+      {/* Guarantor Requests */}
+      <div className="bg-white/5 border border-white/10 rounded-xl p-6 mb-8">
+        <h2 className="text-xl font-semibold text-white mb-6">
+          Guarantor Requests
+        </h2>
+        {pendingGRequests.length === 0 ? (
+          <div className="text-gray-400 text-center py-8">
+            No pending requests
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {pendingGRequests.map(req => (
+              <GuarantorRequestCard
+                key={req._id}
+                request={req}
+                onResponse={handleGuarantorResponse}
+              />
+            ))}
+          </div>
+        )}
+      </div>
 
-              <div className="mt-6">
-                <h3 className="font-semibold">Incoming Loan Requests</h3>
-                <ListCard
-                  title="Requests"
-                  items={incomingRequests}
-                  emptyText="No incoming requests"
-                  renderItem={(r) => (
-                    <li key={r._id || r.id} className="p-2 border border-white/6 rounded flex justify-between items-center">
-                      <div>
-                        <div className="font-medium">Request by: {r.borrower?.name || r.borrowerName || r.borrowerEmail}</div>
-                        <div className="text-xs text-gray-300">Amount: {r.amount || r.requestAmount}</div>
-                      </div>
-                      <div className="flex gap-2">
-                        <button className="btn-neon p-2 rounded">View</button>
-                        <button className="p-2 rounded border border-white/10">Ignore</button>
-                      </div>
-                    </li>
-                  )}
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="mt-8">
-              <h2 className="font-semibold neon-text">Receiver Overview</h2>
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="card p-4 rounded">Active Loans: <div className="text-2xl font-bold neon-text">{contracts.length}</div></div>
-                <div className="card p-4 rounded">Endorsements: <div className="text-2xl font-bold neon-text">{endorsers.length}</div></div>
-                <div className="card p-4 rounded">Eligible Loan: <div className="text-2xl font-bold neon-text">{stats?.eligibleLoan ?? '—'}</div></div>
-              </div>
-
-              <div className="mt-6">
-                <h3 className="font-semibold">Recent Activity</h3>
-                <ListCard
-                  title="Recent Contracts"
-                  items={contracts.slice(0,5)}
-                  emptyText="No recent activity"
-                  renderItem={(c) => (
-                    <li key={c._id || c.id} className="p-2 border border-white/6 rounded">
-                      <div className="font-medium">{c.contractId || c._id}</div>
-                      <div className="text-xs text-gray-300">Status: {c.status}</div>
-                    </li>
-                  )}
-                />
-              </div>
-            </div>
-          )}
-        </>
-      )}
+      {/* TrustIndex History */}
+      <div className="bg-white/5 border border-white/10 rounded-xl p-6">
+        <h2 className="text-xl font-semibold text-white mb-6">
+          TrustIndex History
+        </h2>
+        <TrustIndexHistory />
+      </div>
     </div>
   );
 }
