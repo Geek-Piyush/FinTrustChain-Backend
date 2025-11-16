@@ -48,8 +48,9 @@ export const getMyActiveContracts = async (req, res, next) => {
     const userId = req.user._id;
     const contracts = await Contract.find({
       $or: [{ receiver: userId }, { lender: userId }, { guarantor: userId }],
-      status: "ACTIVE",
-    }).populate("lender receiver guarantor", "name avatarUrl");
+    })
+      .populate("lender receiver guarantor", "name avatarUrl")
+      .sort({ createdAt: -1 });
 
     res.status(200).json({
       status: "success",

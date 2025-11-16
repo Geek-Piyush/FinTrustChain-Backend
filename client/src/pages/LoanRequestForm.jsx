@@ -105,26 +105,17 @@ export default function LoanRequestForm() {
 
     setLoading(true);
     try {
-      const formData = new FormData();
+      const brochureIds = selectedBrochures.map(b => b._id || b.id);
 
-      // For each selected brochure, create a loan request
-      for (const brochure of selectedBrochures) {
-        formData.append("brochureId", brochure._id || brochure.id);
-        formData.append(
-          "guarantorId",
-          selectedGuarantor._id || selectedGuarantor.id
-        );
-        formData.append("purpose", purpose);
-        if (incomeProof) {
-          formData.append("incomeProof", incomeProof);
-        }
+      const payload = {
+        brochureIds: brochureIds,
+        guarantorId: selectedGuarantor._id || selectedGuarantor.id,
+        purpose: purpose,
+      };
 
-        await loanRequests.create(formData);
-      }
+      const response = await loanRequests.create(payload);
 
-      alert(
-        `${selectedBrochures.length} loan request(s) created successfully! Waiting for guarantor approval.`
-      );
+      alert("Loan request created successfully! Guarantor has been notified.");
       navigate("/dashboard");
     } catch (err) {
       alert(err.response?.data?.message || "Failed to create loan request");

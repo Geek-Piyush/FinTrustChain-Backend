@@ -27,6 +27,8 @@ export default function Profile() {
 
   const loadProfile = async () => {
     setLoading(true);
+    // Refresh user data from server to get latest updates
+    await refreshUser();
     try {
       const [givenRes, receivedRes, endorsersRes, endorseesRes] =
         await Promise.all([

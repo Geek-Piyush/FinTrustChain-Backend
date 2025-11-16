@@ -141,6 +141,39 @@ export const signContract = async (req, res, next) => {
 };
 
 //POST /contracts/:id/confirm-disbursal
+// POST /contracts/:id/initiate-disbursal - Initiate disbursal payment via PhonePe
+export const initiateDisbursalPayment = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const { id } = req.params;
+
+    const contract = await Contract.findById(id);
+
+    if (!contract || !contract.lender.equals(user.id)) {
+      throw new Error("Contract not found or you are not the lender.");
+    }
+    if (contract.status !== "AWAITING_DISBURSAL") {
+      throw new Error("This contract is not awaiting disbursal.");
+    }
+
+    // Initiate PhonePe payment for disbursal
+    const redirectUrl = await paymentService.initiatePayment(
+      id,
+      user,
+      contract.principal,
+      "DISBURSAL"
+    );
+
+    res.status(200).json({
+      status: "success",
+      message: "Disbursal payment initiated via PhonePe.",
+      data: { redirectUrl },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const confirmDisbursal = async (req, res, next) => {
   try {
     const user = req.user;
@@ -196,6 +229,12 @@ export const confirmReceipt = async (req, res, next) => {
 
     const contract = await Contract.findById(id);
 
+    console.log("=== CONFIRM RECEIPT DEBUG ===");
+    console.log("Contract ID:", id);
+    console.log("Contract Status:", contract?.status);
+    console.log("User ID:", user.id);
+    console.log("Receiver ID:", contract?.receiver);
+
     // Validation
     if (!contract || !contract.receiver.equals(user.id)) {
       throw new Error(
@@ -207,10 +246,17 @@ export const confirmReceipt = async (req, res, next) => {
     }
 
     // Find and update the transaction log
+    console.log("Searching for transaction with contract:", contract.id);
     const transaction = await Transaction.findOne({
       contract: contract.id,
       status: "DISBURSED",
     });
+    console.log("Transaction found:", transaction);
+
+    // Also check ALL transactions for this contract
+    const allTransactions = await Transaction.find({ contract: contract.id });
+    console.log("All transactions for this contract:", allTransactions);
+
     if (!transaction) {
       throw new Error(
         "No pending disbursal transaction found for this contract."

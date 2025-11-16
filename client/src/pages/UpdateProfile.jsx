@@ -48,9 +48,11 @@ export default function UpdateProfile() {
       const response = await users.updateMe(formData);
       console.log("Update response:", response);
 
-      alert("Profile updated successfully!");
       await refreshUser();
+      alert("Profile updated successfully!");
+      // Navigate and force reload to show updated data
       navigate("/profile");
+      window.location.reload();
     } catch (err) {
       console.error("Profile update failed", err);
       console.error("Error details:", {

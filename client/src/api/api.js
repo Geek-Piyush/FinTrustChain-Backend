@@ -92,6 +92,8 @@ export const contracts = {
     api.get(`/contracts/${id}/download-pdf`, { responseType: "blob" }),
   sign: id => api.post(`/contracts/${id}/sign`),
   confirmReceipt: id => api.post(`/contracts/${id}/confirm-receipt`),
+  initiateDisbursalPayment: id =>
+    api.post(`/contracts/${id}/initiate-disbursal`),
   confirmDisbursal: (id, formData) =>
     api.post(`/contracts/${id}/confirm-disbursal`, formData, {
       headers: { "Content-Type": "multipart/form-data" },
@@ -102,15 +104,14 @@ export const contracts = {
   triggerDefaultCheck: payload =>
     api.post(`/contracts/admin/trigger-default-check`, payload),
   guarantorPay: id => api.post(`/contracts/${id}/guarantor-pay`),
+  simulatePaymentCallback: payload => api.post(`/payments/callback`, payload),
 };
 
 // Guarantor requests
 export const guarantorRequests = {
   create: payload => api.post(`/guarantor-requests`, payload),
   pending: () => api.get(`/guarantor-requests/pending`),
-  update: (id, payload) => api.patch(`/guarantor-requests/${id}`, payload),
-  respond: (id, payload) =>
-    api.post(`/guarantor-requests/${id}/respond`, payload),
+  respond: (id, payload) => api.patch(`/guarantor-requests/${id}`, payload),
 };
 
 // Endorsements
@@ -146,6 +147,7 @@ export const notifications = {
 // Lender-specific endpoints
 export const lender = {
   getStats: () => api.get(`/lender/stats`),
+  getMyBrochures: () => api.get(`/lender/brochures`),
   getPendingRequests: params => api.get(`/lender/requests`, { params }),
   getMyContracts: params => api.get(`/lender/contracts`, { params }),
   acceptRequest: requestId => api.post(`/lender/requests/${requestId}/accept`),

@@ -9,55 +9,109 @@ const PaymentStatus = () => {
   const [status, setStatus] = useState("processing");
   const [message, setMessage] = useState("Processing your payment...");
 
-  const orderId = searchParams.get("orderId");
-  const contractId = searchParams.get("contractId");
+  const merchantOrderId = searchParams.get("merchantOrderId");
+  const paymentType = searchParams.get("type"); // 'EMI' or 'DISBURSAL'
+
+  // Extract contractId from merchantOrderId (format: TYPE_contractId_suffix)
+  const contractId = merchantOrderId?.split("_")[1];
+
+  console.log("PaymentStatus loaded:", {
+    merchantOrderId,
+    paymentType,
+    contractId,
+  });
 
   useEffect(() => {
     const triggerCallback = async () => {
-      if (!orderId || !contractId) {
+      if (!merchantOrderId || !contractId) {
         setStatus("error");
         setMessage("Invalid payment information");
+        console.error("Missing payment info:", { merchantOrderId, contractId });
         return;
       }
 
       try {
-        // Trigger the callback endpoint (development shortcut)
-        await api.post("/payments/callback", {
+        console.log("Calling payment callback API for contract:", contractId);
+        console.log("Full callback payload:", {
           type: "CHECKOUT_ORDER_COMPLETED",
           payload: {
             merchantId: "PGTESTPAYUAT",
-            originalMerchantOrderId: orderId,
+            originalMerchantOrderId: merchantOrderId,
             state: "COMPLETED",
             amount: 450,
             metaInfo: {
               contractId: contractId,
+              paymentType: paymentType || "EMI",
             },
             paymentDetails: [{ state: "COMPLETED" }],
           },
         });
 
-        setStatus("success");
-        setMessage("Payment completed successfully!");
+        // Trigger the callback endpoint
+        const response = await api.post("/payments/callback", {
+          type: "CHECKOUT_ORDER_COMPLETED",
+          payload: {
+            merchantId: "PGTESTPAYUAT",
+            originalMerchantOrderId: merchantOrderId,
+            state: "COMPLETED",
+            amount: 450,
+            metaInfo: {
+              contractId: contractId,
+              paymentType: paymentType || "EMI",
+            },
+            paymentDetails: [{ state: "COMPLETED" }],
+          },
+        });
 
-        // Redirect to contract details after 3 seconds
+        console.log("Callback response:", response.data);
+        console.log("Callback successful! Redirecting to dashboard...");
+
+        setStatus("success");
+        setMessage(
+          paymentType === "DISBURSAL"
+            ? "Disbursal payment completed successfully!"
+            : "Payment completed successfully!"
+        );
+
+        // Redirect to dashboard after 1.5 seconds
         setTimeout(() => {
-          navigate(`/contracts/${contractId}`);
-        }, 3000);
+          console.log("Navigating to dashboard...");
+          navigate("/dashboard");
+        }, 1500);
       } catch (error) {
         console.error("Payment callback error:", error);
+        console.error("Error response:", error.response);
+        console.error("Error message:", error.message);
         setStatus("error");
         setMessage(
-          error.response?.data?.message || "Payment processing failed"
+          error.response?.data?.message ||
+            error.message ||
+            "Payment processing failed. Check console for details."
         );
       }
     };
 
     triggerCallback();
-  }, [orderId, contractId, navigate]);
-
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900">
       <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-8 max-w-md w-full mx-4 text-center">
+        {/* Debug Info - Always Visible */}
+        <div className="bg-black/30 rounded-lg p-3 mb-4 text-left text-xs">
+          <div className="text-gray-400">Debug Info:</div>
+          <div className="text-green-400">Status: {status}</div>
+          <div className="text-blue-400">
+            merchantOrderId: {merchantOrderId || "MISSING"}
+          </div>
+          <div className="text-blue-400">
+            contractId: {contractId || "MISSING"}
+          </div>
+          <div className="text-blue-400">
+            paymentType: {paymentType || "MISSING"}
+          </div>
+        </div>
+
         {status === "processing" && (
           <>
             <Loader />
@@ -89,9 +143,15 @@ const PaymentStatus = () => {
               Payment Successful!
             </h2>
             <p className="text-gray-300 mb-4">{message}</p>
-            <p className="text-sm text-gray-400">
-              Redirecting to contract details...
+            <p className="text-sm text-gray-400 mb-4">
+              Redirecting to dashboard...
             </p>
+            <button
+              onClick={() => navigate("/dashboard")}
+              className="px-6 py-3 bg-blue-500 hover:bg-blue-600 rounded-lg text-white font-medium transition-colors"
+            >
+              Go to Dashboard Now
+            </button>
           </>
         )}
 
@@ -113,14 +173,28 @@ const PaymentStatus = () => {
               </svg>
             </div>
             <h2 className="text-2xl font-bold text-white mb-2">
-              Payment Failed
+              Payment Processing Issue
             </h2>
-            <p className="text-gray-300 mb-6">{message}</p>
+            <p className="text-gray-300 mb-4">{message}</p>
+            <div className="bg-red-500/20 border border-red-500 rounded-lg p-4 mb-4 text-left">
+              <p className="text-sm text-red-300 mb-2">
+                <strong>Error Details:</strong>
+              </p>
+              <p className="text-xs text-gray-300">
+                Please check the browser console (F12) for detailed error logs.
+              </p>
+            </div>
             <button
-              onClick={() => navigate(`/contracts/${contractId}`)}
+              onClick={() => {
+                if (contractId) {
+                  navigate(`/contracts/${contractId}`);
+                } else {
+                  navigate("/dashboard");
+                }
+              }}
               className="px-6 py-3 bg-blue-500 hover:bg-blue-600 rounded-lg text-white font-medium transition-colors"
             >
-              Back to Contract
+              {contractId ? "Back to Contract" : "Back to Dashboard"}
             </button>
           </>
         )}

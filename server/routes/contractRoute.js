@@ -5,6 +5,7 @@ import {
   confirmReceipt,
   uploadProof,
   initiateGuarantorPayment,
+  initiateDisbursalPayment,
   getDisbursalProof,
   getReceiverUpi,
   getContractDetails,
@@ -26,7 +27,10 @@ router.get("/:id/download-pdf", getContractPDF);
 // The ':id' refers to the ID of the Contract document.
 router.post("/:id/sign", signContract);
 
-// Endpoint for the Lender to confirm they've sent the money
+// Endpoint for the Lender to initiate disbursal payment via PhonePe
+router.post("/:id/initiate-disbursal", initiateDisbursalPayment);
+
+// Endpoint for the Lender to confirm they've sent the money (manual proof upload - legacy)
 router.post("/:id/confirm-disbursal", uploadProof, confirmDisbursal);
 
 // Endpoint for the Receiver to confirm they've received the money

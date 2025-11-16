@@ -27,8 +27,8 @@ export default function LenderDashboard() {
       const [_statsRes, brochuresRes, requestsRes, contractsRes] =
         await Promise.all([
           lender.getStats().catch(() => ({ data: {} })),
-          brochures
-            .getMy()
+          lender
+            .getMyBrochures()
             .catch(() => ({ data: { data: { brochures: [] } } })),
           lender
             .getPendingRequests()

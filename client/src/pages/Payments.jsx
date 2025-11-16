@@ -27,20 +27,22 @@ export default function Payments() {
     return () => (mounted = false);
   }, []);
 
-  const handlePay = async (contractId) => {
+  const handlePay = async contractId => {
     setPaying(contractId);
     try {
       const res = await paymentsApi.pay({ contractId });
-      const redirectUrl = res?.data?.data?.redirectUrl || res?.data?.redirectUrl;
+      const redirectUrl =
+        res?.data?.data?.redirectUrl || res?.data?.redirectUrl;
       if (redirectUrl) {
-        window.open(redirectUrl, "_blank");
-        toast.success("Payment initiated, opening provider...");
+        // Redirect to PhonePe payment page
+        window.location.href = redirectUrl;
       } else {
-        toast.success("Payment initiated");
+        toast.error("Failed to get payment URL");
       }
     } catch (err) {
-      toast.error(err?.response?.data?.message || err?.message || "Payment failed");
-    } finally {
+      toast.error(
+        err?.response?.data?.message || err?.message || "Payment failed"
+      );
       setPaying(null);
     }
   };
@@ -54,15 +56,33 @@ export default function Payments() {
           <Loader />
         ) : (
           <div className="grid gap-4">
-            {contracts.length === 0 && <div className="card p-4">No active contracts available for payment.</div>}
-            {contracts.map((c) => (
-              <div key={c._id || c.id} className="card p-4 rounded flex items-center justify-between">
+            {contracts.length === 0 && (
+              <div className="card p-4">
+                No active contracts available for payment.
+              </div>
+            )}
+            {contracts.map(c => (
+              <div
+                key={c._id || c.id}
+                className="card p-4 rounded flex items-center justify-between"
+              >
                 <div>
-                  <div className="font-medium">Contract: {c.contractId || c._id}</div>
-                  <div className="text-sm text-gray-300">Status: {c.status} • Amount: ₹{c.totalAmount?.toLocaleString?.() ?? c.amount}</div>
+                  <div className="font-medium">
+                    Contract: {c.contractId || c._id}
+                  </div>
+                  <div className="text-sm text-gray-300">
+                    Status: {c.status} • Amount: ₹
+                    {c.totalAmount?.toLocaleString?.() ?? c.amount}
+                  </div>
                 </div>
                 <div>
-                  <button className="btn-neon px-4 py-2 rounded" onClick={() => handlePay(c._id || c.id)} disabled={paying === (c._id || c.id)}>{paying === (c._id || c.id) ? 'Processing...' : 'Pay'}</button>
+                  <button
+                    className="btn-neon px-4 py-2 rounded"
+                    onClick={() => handlePay(c._id || c.id)}
+                    disabled={paying === (c._id || c.id)}
+                  >
+                    {paying === (c._id || c.id) ? "Processing..." : "Pay"}
+                  </button>
                 </div>
               </div>
             ))}

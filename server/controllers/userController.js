@@ -110,7 +110,7 @@ export const updateMe = async (req, res, next) => {
         new: true,
         runValidators: true,
       }
-    );
+    ).select("+upiId");
 
     res.status(200).json({
       status: "success",

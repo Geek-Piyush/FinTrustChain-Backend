@@ -52,6 +52,8 @@ export default function CreateBrochure() {
 
       alert("Brochure created successfully!");
       navigate("/lender-dashboard");
+      // Reload to show the new brochure
+      window.location.reload();
     } catch (err) {
       alert(err.response?.data?.message || "Failed to create brochure");
     } finally {

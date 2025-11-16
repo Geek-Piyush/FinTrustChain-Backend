@@ -2,6 +2,7 @@ import * as paymentService from "../services/paymentService.js";
 import { settleSuccessfulRepayment } from "../services/loanSettlementServices.js";
 import { phonepeClient } from "../services/paymentService.js";
 import Contract from "../models/contractModel.js";
+import Transaction from "../models/transactionModel.js";
 
 // POST /payments/pay
 export const createPayment = async (req, res, next) => {
@@ -78,7 +79,72 @@ export const handleCallback = async (req, res, next) => {
 
     if (eventType === "CHECKOUT_ORDER_COMPLETED") {
       const contractId = payload.metaInfo.contractId;
-      settleSuccessfulRepayment(contractId);
+      const paymentType = payload.metaInfo.paymentType || "EMI";
+
+      if (paymentType === "DISBURSAL") {
+        // Handle disbursal payment completion
+        console.log("Processing DISBURSAL payment for contract:", contractId);
+
+        const contract = await Contract.findById(contractId)
+          .populate("lender")
+          .populate("receiver");
+
+        if (!contract) {
+          console.error("Contract not found:", contractId);
+          return res.status(200).send();
+        }
+
+        console.log("Contract status:", contract.status);
+
+        // Allow both AWAITING_DISBURSAL and AWAITING_RECEIPT_CONFIRMATION
+        // (in case callback is called multiple times)
+        if (
+          contract.status === "AWAITING_DISBURSAL" ||
+          contract.status === "AWAITING_RECEIPT_CONFIRMATION"
+        ) {
+          // Check if transaction already exists
+          const existingTransaction = await Transaction.findOne({
+            contract: contract._id,
+            status: "DISBURSED",
+          });
+
+          if (!existingTransaction) {
+            console.log("Creating new transaction for disbursal");
+            // Create a transaction record for the disbursal
+            await Transaction.create({
+              contract: contract._id,
+              fromUser: contract.lender._id,
+              toUser: contract.receiver._id,
+              amount: contract.principal,
+              status: "DISBURSED",
+              proofOfPaymentFilename: `phonepe_${payload.originalMerchantOrderId}`,
+              paymentTransactionId: payload.originalMerchantOrderId,
+            });
+            console.log("Transaction created successfully");
+          } else {
+            console.log("Transaction already exists, skipping creation");
+          }
+
+          if (contract.status !== "AWAITING_RECEIPT_CONFIRMATION") {
+            contract.status = "AWAITING_RECEIPT_CONFIRMATION";
+            await contract.save();
+            console.log(
+              "Contract status updated to AWAITING_RECEIPT_CONFIRMATION"
+            );
+          }
+
+          console.log(
+            `Disbursal payment completed for Contract ${contractId}. Transaction created and status updated.`
+          );
+        } else {
+          console.log(
+            `Contract ${contractId} is in status ${contract.status}, skipping disbursal processing`
+          );
+        }
+      } else {
+        // Handle regular EMI payment
+        settleSuccessfulRepayment(contractId);
+      }
     } else if (eventType === "CHECKOUT_ORDER_FAILED") {
       console.error(
         `Payment failed for Order ID: ${payload.originalMerchantOrderId}.`

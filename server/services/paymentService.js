@@ -28,20 +28,33 @@ const phonepeClient = StandardCheckoutClient.getInstance(
  * @param {string} contractId - The ID of the contract.
  * @param {object} user - The user object of the person paying.
  * @param {number} [paymentAmount] - Optional: The specific amount to pay. If not provided, defaults to the contract's principal.
+ * @param {string} [paymentType] - Type of payment: 'EMI' or 'DISBURSAL'. Defaults to 'EMI'.
  * @returns {string} The redirect URL for the PhonePe checkout page.
  */
-export async function initiatePayment(contractId, user, paymentAmount) {
+export async function initiatePayment(
+  contractId,
+  user,
+  paymentAmount,
+  paymentType = "EMI"
+) {
   try {
     const contract = await Contract.findById(contractId);
     if (!contract) {
       throw new Error("Contract not found.");
     }
 
-    // Use the provided paymentAmount or default to the contract's principal.
-    const payableAmount =
-      (contract.principal * contract.interestRate) / 100 + contract.principal;
-    const amountToPay =
-      paymentAmount !== undefined ? paymentAmount : payableAmount;
+    // Determine amount based on payment type
+    let amountToPay;
+    if (paymentType === "DISBURSAL") {
+      // For disbursal, use the principal amount
+      amountToPay =
+        paymentAmount !== undefined ? paymentAmount : contract.principal;
+    } else {
+      // For EMI, use the total repayment amount
+      const payableAmount =
+        (contract.principal * contract.interestRate) / 100 + contract.principal;
+      amountToPay = paymentAmount !== undefined ? paymentAmount : payableAmount;
+    }
 
     if (typeof amountToPay !== "number" || amountToPay <= 0) {
       throw new Error("Invalid amount for payment.");
@@ -49,8 +62,9 @@ export async function initiatePayment(contractId, user, paymentAmount) {
 
     const amountInPaisa = Math.round(amountToPay * 100);
     const uniqueSuffix = randomUUID().slice(0, 8);
-    const merchantOrderId = `CONTR_${contractId}_${uniqueSuffix}`;
-    const redirectUrl = `http://localhost:3000/payment-status/${merchantOrderId}`;
+    const merchantOrderId = `${paymentType}_${contractId}_${uniqueSuffix}`;
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5174";
+    const redirectUrl = `${frontendUrl}/payment-status?merchantOrderId=${merchantOrderId}&type=${paymentType}`;
 
     const request = StandardCheckoutPayRequest.builder()
       .merchantOrderId(merchantOrderId)
@@ -59,7 +73,8 @@ export async function initiatePayment(contractId, user, paymentAmount) {
       .metaInfo({
         contractId: contractId.toString(),
         payerId: user._id.toString(),
-      }) // Pass payer info
+        paymentType: paymentType,
+      })
       .build();
 
     const response = await phonepeClient.pay(request);

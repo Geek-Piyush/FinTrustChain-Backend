@@ -17,11 +17,7 @@ export default function ContractDetail() {
   const [loading, setLoading] = useState(true);
   const [signing, setSigning] = useState(false);
   const [disbursing, setDisbursing] = useState(false);
-  const [paymentProof, setPaymentProof] = useState(null);
-  const [uploading, setUploading] = useState(false);
   const [receiverUpi, setReceiverUpi] = useState("");
-  const [transactionId, setTransactionId] = useState("");
-  const [disbursalProof, setDisbursalProof] = useState(null);
 
   const loadContract = async () => {
     setLoading(true);
@@ -90,77 +86,31 @@ export default function ContractDetail() {
     }
   };
 
-  const handleDisburse = async e => {
-    e.preventDefault();
-    if (!transactionId || !disbursalProof) {
-      alert("Please provide transaction ID and upload payment proof");
-      return;
-    }
-
+  const handleInitiateDisbursalPayment = async () => {
     if (
       !confirm(
-        `Confirm disbursal of ₹${contract?.principal?.toLocaleString()}?`
+        `Initiate disbursal payment of ₹${contract?.principal?.toLocaleString()} via PhonePe?`
       )
     )
       return;
 
     setDisbursing(true);
     try {
-      const formData = new FormData();
-      formData.append("transactionId", transactionId);
-      formData.append("proof", disbursalProof);
+      const response = await contracts.initiateDisbursalPayment(id);
+      const redirectUrl =
+        response.data?.data?.redirectUrl || response.data?.redirectUrl;
 
-      await contracts.confirmDisbursal(id, formData);
-      alert("Disbursal proof submitted successfully!");
-      setTransactionId("");
-      setDisbursalProof(null);
-      loadContract();
+      if (redirectUrl) {
+        window.location.href = redirectUrl;
+      } else {
+        alert("Failed to get payment URL");
+      }
     } catch (err) {
-      alert(err.response?.data?.message || "Failed to submit disbursal proof");
+      alert(
+        err.response?.data?.message || "Failed to initiate disbursal payment"
+      );
     } finally {
       setDisbursing(false);
-    }
-  };
-
-  const handleUploadProof = async e => {
-    e.preventDefault();
-    if (!paymentProof) {
-      alert("Please select a payment proof file");
-      return;
-    }
-
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append("proof", paymentProof);
-      formData.append("contractId", id);
-      formData.append("transactionId", `TXN${Date.now()}`);
-
-      await payments.uploadProof(formData);
-      alert("Payment proof submitted! Waiting for lender acknowledgment.");
-      setPaymentProof(null);
-      loadContract();
-    } catch (err) {
-      alert(err.response?.data?.message || "Failed to upload proof");
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleViewDisbursalProof = async () => {
-    try {
-      // Fetch the image as a blob with authentication
-      const response = await contracts.disbursalProof(id);
-      const blob = new Blob([response.data], {
-        type: response.headers["content-type"],
-      });
-      const blobUrl = URL.createObjectURL(blob);
-      window.open(blobUrl, "_blank");
-
-      // Clean up the blob URL after a delay
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
-    } catch (err) {
-      alert(err.response?.data?.message || "Failed to load disbursal proof");
     }
   };
 
@@ -408,18 +358,8 @@ export default function ContractDetail() {
               </h3>
               <p className="text-sm text-gray-300 mb-4">
                 The lender has disbursed ₹{contract.principal?.toLocaleString()}
-                . Please verify receipt and view the payment proof before
-                confirming.
+                . Please verify receipt before confirming.
               </p>
-
-              <div className="flex gap-3 mb-4">
-                <button
-                  onClick={handleViewDisbursalProof}
-                  className="px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg text-white text-sm font-medium transition-colors"
-                >
-                  View Disbursal Proof
-                </button>
-              </div>
 
               <button
                 onClick={handleConfirmReceipt}
@@ -450,6 +390,7 @@ export default function ContractDetail() {
                     const paymentRes = await payments.pay({ contractId: id });
                     const redirectUrl = paymentRes.data?.data?.redirectUrl;
                     if (redirectUrl) {
+                      // Redirect to PhonePe payment page
                       window.location.href = redirectUrl;
                     } else {
                       alert("Failed to initiate payment");
@@ -524,58 +465,59 @@ export default function ContractDetail() {
                 </div>
               </div>
 
-              {/* Disbursal Proof Form */}
-              <form onSubmit={handleDisburse} className="space-y-4">
-                <div>
-                  <label className="block text-sm text-gray-400 mb-2">
-                    Transaction ID <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={transactionId}
-                    onChange={e => setTransactionId(e.target.value)}
-                    placeholder="Enter transaction ID from payment app"
-                    className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm text-gray-400 mb-2">
-                    Payment Proof (Screenshot/Receipt){" "}
-                    <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    type="file"
-                    accept="image/*,.pdf"
-                    onChange={e => setDisbursalProof(e.target.files[0])}
-                    className="block w-full text-sm text-gray-400
-                      file:mr-4 file:py-2 file:px-4
-                      file:rounded file:border-0
-                      file:text-sm file:font-semibold
-                      file:bg-blue-500 file:text-white
-                      hover:file:bg-blue-600"
-                    required
-                  />
-                  {disbursalProof && (
-                    <div className="mt-2 text-xs text-green-400">
-                      Selected: {disbursalProof.name}
+              {/* PhonePe Payment - Direct without method selection */}
+              <div className="space-y-4">
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <svg
+                      className="w-5 h-5 text-blue-400 mt-0.5"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                    <div className="text-sm text-blue-300">
+                      You'll be redirected to PhonePe to complete the payment of
+                      ₹{contract.principal?.toLocaleString()} to the receiver's
+                      UPI ID.
                     </div>
-                  )}
+                  </div>
                 </div>
-
                 <button
-                  type="submit"
-                  disabled={disbursing || !transactionId || !disbursalProof}
-                  className="w-full px-6 py-3 bg-green-500 hover:bg-green-600 rounded-lg text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={handleInitiateDisbursalPayment}
+                  disabled={disbursing}
+                  className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 rounded-lg text-white font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  {disbursing ? "Submitting..." : "Submit Disbursal Proof"}
+                  {disbursing ? (
+                    "Redirecting..."
+                  ) : (
+                    <>
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"
+                        />
+                      </svg>
+                      Pay via PhonePe
+                    </>
+                  )}
                 </button>
-              </form>
+              </div>
 
               <p className="mt-4 text-xs text-gray-500">
-                After submitting, the receiver will be notified to confirm
-                receipt of funds.
+                After payment, the receiver will be notified to confirm receipt
+                of funds.
               </p>
             </div>
           )}
